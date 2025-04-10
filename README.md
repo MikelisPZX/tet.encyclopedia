@@ -50,19 +50,14 @@ cd tet.encyclopedia
 cp .env.example .env
 ```
 
-3. Configure the database in the `.env` file (already set to use SQLite):
-
-```
-DB_CONNECTION=sqlite
-```
-
-4. Start the Docker containers:
+3. Build and start the Docker containers:
 
 ```bash
+docker-compose build
 docker-compose up -d
 ```
 
-5. Install dependencies and set up the application:
+4. Install dependencies and set up the application:
 
 ```bash
 # Install Composer dependencies
@@ -82,7 +77,7 @@ docker-compose exec app npm install
 docker-compose exec app npm run build
 ```
 
-6. Access the application at [http://localhost:80](http://localhost:80)
+5. Access the application at [http://localhost:80](http://localhost:80)
 
 ### Local Development
 
