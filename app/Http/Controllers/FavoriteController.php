@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Country;
 use App\Models\Favorite;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -12,105 +11,69 @@ class FavoriteController extends Controller
     /**
      * Get all favorites
      */
-    public function index()
+    public function index(Request $request)
     {
         $favorites = Favorite::all();
+        
         return response()->json($favorites);
     }
 
     /**
      * Toggle favorite status for a country.
      */
-    public function toggle(Request $request, $countryId)
+    public function toggle(Request $request, $countryCode)
     {
-        // First check if country exists in our database
-        $country = Country::find($countryId);
+        // Check if already a favorite
+        $favorite = Favorite::where('country_code', $countryCode)->first();
+        $isFavorite = false;
         
-        // If country doesn't exist, verify it with the API and create a minimal record
-        if (!$country) {
+        if ($favorite) {
+            // Remove from favorites
+            $favorite->delete();
+            $isFavorite = false;
+            $country = [
+                'country_code' => $countryCode,
+                'is_favorite' => false
+            ];
+        } else {
             try {
-                // Try both the numeric code and alpha-3 code endpoints
-                $apiEndpoint = is_numeric($countryId) 
-                    ? "https://restcountries.com/v3.1/alpha/{$countryId}" 
-                    : "https://restcountries.com/v3.1/alpha/{$countryId}";
+                // Use the alpha-3 code endpoint to get country data
+                $apiEndpoint = "https://restcountries.com/v3.1/alpha/{$countryCode}";
                 
-                $response = Http::timeout(5)
+                $response = Http::timeout(15)
                     ->retry(3, 1000)
+                    ->withOptions([
+                        'curl' => [
+                            CURLOPT_TCP_KEEPALIVE => 1,
+                            CURLOPT_BUFFERSIZE => 1024 * 1024, // 1MB buffer
+                            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1
+                        ]
+                    ])
                     ->get($apiEndpoint);
                 
-                // If the first attempt fails and it was numeric, try by alpha code
-                if (!$response->successful() && is_numeric($countryId)) {
-                    // Try searching by all codes as a fallback
-                    $response = Http::timeout(5)
-                        ->retry(3, 1000)
-                        ->get("https://restcountries.com/v3.1/all");
-                    
-                    if ($response->successful()) {
-                        $allCountries = $response->json();
-                        $filteredCountry = null;
-                        
-                        // Find country by numeric code in the full dataset
-                        foreach ($allCountries as $apiCountry) {
-                            if (isset($apiCountry['ccn3']) && $apiCountry['ccn3'] == $countryId) {
-                                $filteredCountry = $apiCountry;
-                                break;
-                            }
-                        }
-                        
-                        if ($filteredCountry) {
-                            // Check if the country exists by cca3 code first
-                            $existingCountry = Country::where('cca3', $filteredCountry['cca3'])->first();
-                            
-                            if ($existingCountry) {
-                                $country = $existingCountry;
-                            } else {
-                                // Create minimal country record for favoriting
-                                $country = Country::create([
-                                    'id' => $countryId,
-                                    'cca3' => strval($filteredCountry['cca3']),
-                                    'cca2' => strval($filteredCountry['cca2']),
-                                    'name_common' => strval($filteredCountry['name']['common']),
-                                    'name_official' => strval($filteredCountry['name']['official']),
-                                    'flag_emoji' => $filteredCountry['flag'] ?? null
-                                ]);
-                            }
-                        } else {
-                            return response()->json([
-                                'success' => false,
-                                'message' => 'Country not found in API'
-                            ], 404);
-                        }
-                    } else {
-                        return response()->json([
-                            'success' => false,
-                            'message' => 'Country not found in API'
-                        ], 404);
-                    }
-                } elseif ($response->successful()) {
+                if ($response->successful()) {
                     $apiData = $response->json();
                     // Handle both array and direct object responses
                     $apiData = is_array($apiData) && !isset($apiData['name']) ? $apiData[0] : $apiData;
                     
-                    // Check if the country exists by cca3 code first
-                    $existingCountry = Country::where('cca3', $apiData['cca3'])->first();
+                    // Create a new favorite
+                    $favorite = Favorite::create([
+                        'country_code' => strval($apiData['cca3']),
+                        'country_name' => strval($apiData['name']['common']),
+                        'flag_emoji' => $apiData['flag'] ?? null
+                    ]);
                     
-                    if ($existingCountry) {
-                        $country = $existingCountry;
-                    } else {
-                        // Create minimal country record for favoriting
-                        $country = Country::create([
-                            'id' => $countryId,
-                            'cca3' => strval($apiData['cca3']),
-                            'cca2' => strval($apiData['cca2']),
-                            'name_common' => strval($apiData['name']['common']),
-                            'name_official' => strval($apiData['name']['official']),
-                            'flag_emoji' => $apiData['flag'] ?? null
-                        ]);
-                    }
+                    $isFavorite = true;
+                    $country = [
+                        'country_code' => $favorite->country_code,
+                        'country_name' => $favorite->country_name,
+                        'flag_emoji' => $favorite->flag_emoji,
+                        'is_favorite' => true
+                    ];
                 } else {
                     return response()->json([
                         'success' => false,
-                        'message' => 'Country not found in API'
+                        'message' => 'Country not found with code: ' . $countryCode
                     ], 404);
                 }
             } catch (\Exception $e) {
@@ -121,29 +84,16 @@ class FavoriteController extends Controller
             }
         }
         
-        // Check if already a favorite
-        $favorite = Favorite::where('country_id', $country->id)->first();
-        
-        if ($favorite) {
-            // Remove from favorites
-            $favorite->delete();
-            $isFavorite = false;
-        } else {
-            // Add to favorites
-            Favorite::create([
-                'country_id' => $country->id
-            ]);
-            $isFavorite = true;
-        }
-        
-        if ($request->wantsJson()) {
+        // Always ensure we return JSON for AJAX requests
+        if ($request->expectsJson() || $request->ajax() || $request->wantsJson() || $request->header('Accept') == 'application/json') {
             return response()->json([
                 'success' => true,
-                'is_favorite' => $isFavorite
+                'favorited' => $isFavorite,
+                'country' => $country
             ]);
         }
         
-        return redirect()->back()->with('success', 
-            $isFavorite ? 'Country added to favorites.' : 'Country removed from favorites.');
+        // If it's a regular form submission (not AJAX), redirect back
+        return back()->with('status', $isFavorite ? 'Country added to favorites' : 'Country removed from favorites');
     }
 }

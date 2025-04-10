@@ -10,7 +10,9 @@ class Favorite extends Model
     use HasFactory;
 
     protected $fillable = [
-        'country_id',
+        'country_code',
+        'country_name',
+        'flag_emoji',
     ];
 
     public function country()

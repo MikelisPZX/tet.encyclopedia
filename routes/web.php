@@ -7,25 +7,25 @@ use App\Http\Controllers\ApiController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Http;
 
-Route::get('/', [CountryController::class, 'index'])->name('home');
-Route::get('/countries/data/{id}', [CountryController::class, 'getData'])->name('countries.getData');
-Route::get('/countries/{code}', [CountryController::class, 'show'])->name('countries.show');
-Route::get('/languages/{language}', [CountryController::class, 'byLanguage'])->name('countries.by-language');
-Route::get('/search', [CountryController::class, 'search'])->name('countries.search');
+// API routes for the SPA
 Route::get('/api/search', [ApiController::class, 'searchCountries'])->name('api.search');
+Route::get('/search', [ApiController::class, 'searchCountries'])->name('countries.search');
 Route::get('/favorites', [FavoriteController::class, 'index'])->name('favorites.index');
 Route::post('/favorites/{countryId}', [FavoriteController::class, 'toggle'])->name('favorites.toggle');
+Route::get('/countries/data/{id}', [CountryController::class, 'getData'])->name('countries.getData');
 
-Route::get('/dashboard', function () {
-    return view('dashboard');
-})->middleware(['auth', 'verified'])->name('dashboard');
+// API endpoints for data
+Route::get('/api/countries/{code}', [CountryController::class, 'show'])->name('api.countries.show');
+Route::get('/api/languages/{language}', [CountryController::class, 'byLanguageApi'])->name('api.countries.by-language');
 
+// Auth routes
 Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 });
 
+// Debug routes
 Route::get('/debug/country/{code}', function($code) {
     $response = Http::timeout(3)
         ->retry(2, 1000)
@@ -64,4 +64,10 @@ Route::get('/debug/language/{language}', function($language) {
     return response()->json(['error' => 'No countries found for this language', 'language' => $language], 404);
 });
 
+// Auth routes
 require __DIR__.'/auth.php';
+
+// Catch-all route to serve the SPA
+Route::get('/{any?}', function () {
+    return view('app');
+})->where('any', '.*')->name('home');

@@ -13,8 +13,13 @@ return new class extends Migration
     {
         Schema::create('favorites', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('country_id')->constrained()->onDelete('cascade');
+            $table->string('country_code', 3); // Store cca3 country code (3-letter code)
+            $table->string('country_name')->nullable(); // Store country name for display purposes
+            $table->string('flag_emoji')->nullable(); // Store flag emoji for display
             $table->timestamps();
+            
+            // Add index for faster lookups
+            $table->index('country_code');
         });
     }
 
